@@ -26,3 +26,5 @@ split <- fit$finalModel$splits %>%
 qplot(balance, income, color = default, shape = student, data = train_set) +
   geom_vline(xintercept = split)
 
+prediction <- predict(fit, newdata = test_set)
+confusionMatrix(prediction, test_set$default)
