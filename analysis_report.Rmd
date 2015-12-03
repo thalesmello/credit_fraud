@@ -1,0 +1,135 @@
+---
+title: "Analysis of Credit Card Fraud"
+author: "Thales Mello"
+date: "December 3, 2015"
+output: html_document
+---
+
+# Analysis of Credit Card Fraud
+
+In this report, we wish to analyze data to predict credit card analysis,
+based off the data from the [Introduction to Statistical Learning][1] book.
+Before we start, let's load the necessary packages and initialize our script.
+
+```{r}
+require(readr)
+require(dplyr)
+require(ggplot2)
+require(caret)
+require(rpart.plot)
+require(doMC)
+
+registerDoMC(4) # adjust number of cores for parallel computing
+set.seed(1283) # set up seed so results are reproducible
+```
+
+We begin by downloading the data set and loading it in memory.
+
+```{r}
+if(!file.exists('Default.csv')){
+  download.file('https://d1pqsl2386xqi9.cloudfront.net/notebooks/Default.csv', 'Default.csv', method = 'curl')
+}
+default <- read_csv('Default.csv') %>% select(default:income)
+```
+
+Then, we divide the our data in two sets, a train set and a test set.
+
+```{r}
+train_factor <- 0.5
+in_train <- createDataPartition(default$default, p = train_factor, list = F)
+train_set <- slice(default, in_train)
+test_set <- slice(default, -in_train)
+```
+
+To get a feel of the data, let's do an exploratory data analysis.
+
+```{r}
+qplot(balance, income, color = default, shape = student, data = train_set)
+```
+
+In the graph, the fraudulent credit cards are represented in blue, and we are trying to find
+a way to predict whether a card with given balance, income and student information is fraudulent
+or not. A naive approach would be to split the data in two with a vertical line. However, we can
+use some machine learning training methods to fit the data and find a model with a good
+accuracy of prediction.
+
+## Fitting Decision Trees
+
+We begin using the decision tree method because of its simplicity to interpret the fitted model.
+To train the model, we use the `caret` package in R, which provides a convenient API to train data
+using a variety of different machine learning methods.
+
+```{r}
+fit_decision_tree <- train(default ~ ., method = 'rpart', data = train_set)
+prp(fit_decision_tree$finalModel)
+```
+
+By analyzing the plot, we find the data is indeed better split by categorizing each point as non fraudulent if balance is smaller than 1889, or fraudulent otherwise. The other variables seem to have no influence on the output.
+
+To visualize how this tree splits the data, we plot the train data graph again with the line that splits the data.
+
+```{r}
+split <- fit_decision_tree$finalModel$splits %>%
+  subset(., row.names(.) == 'balance') %>%
+  .[, 'index'] %>%
+  max
+qplot(balance, income, color = default, shape = student, data = train_set) +
+  geom_vline(xintercept = split)
+```
+
+Finally, we want to compare the performance of the predictions gains the test data set. To do so, we compute the confusion matrix.
+
+```{r}
+prediction_decision_tree <- predict(fit_decision_tree, newdata = test_set)
+confusionMatrix(prediction_decision_tree, test_set$default)
+```
+
+From the confusion matrix, we can see the accuracy of 97.42% is greater than the no information rate, which is the rate of non fraudulent points. In practice, it means this is a real improvement over not having a classification model. However, it's still worthwhile to consider other methods.
+
+## Random Forests
+
+The second method we will try to apply to the data is the random forests method. Unfortunately, the interpretation of random forests isn't usually as straightforward as the decision tree method, so we will analyze its efficacy of prediction directly with the confusion matrix.
+
+```{r}
+fit_random_forest <- train(default ~ ., method = 'rf', data = train_set)
+prediction_rf <- predict(fit_decision_tree, newdata = test_set)
+confusionMatrix(prediction_rf, test_set$default)
+```
+
+From the confusion matrix, we can see it has the same accuracy of 97.42%. The reason behind this is the
+random forests method uses decision trees underneath and, when they choose to split on the balance variable,
+they end up choosing exactly the same point. Therefore, they generate the same output in this simplified
+data set. In more complicated data sets, random forests tend to be one of the most accurate methods.
+
+## Logistic Regression
+
+Logistic regression uses a special form of linear regression designed to categorize data.
+Let's explore it by fitting the data.
+
+```{r}
+fit_logistic <- train(default ~ ., method = 'glm', preProcess = c('center', 'scale'), data = train_set)
+prediction_rf <- predict(fit_logistic, newdata = test_set)
+confusionMatrix(prediction_rf, test_set$default)
+```
+
+From the confusion matrix, we can see the accuracy is 97.58%, which is a marginal improvement over the
+previous methods. Let's analyze the importance of the variables in each of the models to see if we can identify why this happens.
+
+```{r}
+varImp(fit_decision_tree)
+varImp(fit_random_forest)
+varImp(fit_logistic)
+```
+
+One possible explanation is the logistic regression method could find a predictive value for the `student`
+variable.
+
+## Conclusion
+
+In this report, we use the decision tree, random forests and logistic regression methods to model our data.
+Then we compare the performance of each models' gains the a test data set. Even though the logistic
+regression method yielded the model with the highest accuracy, the accuracy gain was only marginal. It
+exemplifies the principle in machine learning of reducing marginal gains when you add complexity to your
+model. That is, if you improve your model, you tend to not have much improvement on accuracy.
+
+[1]: http://www-bcf.usc.edu/~gareth/ISL/
